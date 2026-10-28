@@ -25,6 +25,7 @@ struct ObjString {
   bool ownsChars;
   int length;
   const char* chars;
+  uint32_t hash;
 };
 
 ObjString* takeString(char* chars, int length);

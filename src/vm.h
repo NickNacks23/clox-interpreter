@@ -1,3 +1,4 @@
+#include "table.h"
 
 #ifndef clox_vm_h
 #define clox_vm_h
@@ -12,6 +13,7 @@ typedef struct {
   int stackCapacity;
   int stackCount;
   Value* stack;
+  Table strings;
   Obj* objects;
 } VM;
 

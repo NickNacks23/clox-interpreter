@@ -77,15 +77,13 @@ static void concatenate() {
   ObjString* a = AS_STRING(pop());
 
   int length = a->length + b->length;
-  ObjString* result = (ObjString*)NULL;
+  char* chars = ALLOCATE(char, length + 1);
 
-  // Allocate a single object containing the characters.
-  result = makeString(length);
+  memcpy(chars, a->chars, a->length);
+  memcpy(chars + a->length, b->chars, b->length);
+  chars[length] = '\0';
 
-  memcpy(result->chars, a->chars, a->length);
-  memcpy(result->chars + a->length, b->chars, b->length);
-  result->chars[length] = '\0';
-
+  ObjString* result = takeString(chars, length);
   push(OBJ_VAL(result));
 }
 

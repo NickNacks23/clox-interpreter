@@ -13,8 +13,10 @@ typedef struct {
   int stackCapacity;
   int stackCount;
   Value* stack;
-  Table strings;
-  Obj* objects;
+  Table globalNames;
+ValueArray globalValues;
+Table strings;
+Obj* objects;
 } VM;
 
 typedef enum {

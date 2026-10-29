@@ -31,6 +31,7 @@ void freeValueArray(ValueArray* array) {
 
 void printValue(Value value) {
   switch (value.type) {
+    case VAL_UNDEFINED: printf("<undefined>"); break;
     case VAL_BOOL:
       printf(AS_BOOL(value) ? "true" : "false");
       break;
@@ -50,6 +51,7 @@ bool valuesEqual(Value a, Value b) {
 
   switch (a.type) {
     
+    case VAL_UNDEFINED: return true;
     case VAL_BOOL:
       return AS_BOOL(a) == AS_BOOL(b);
     case VAL_NIL:
@@ -77,6 +79,7 @@ static uint32_t hashDouble(double value) {
 
 uint32_t hashValue(Value value) {
   switch (value.type) {
+    case VAL_UNDEFINED: return 0;
     case VAL_BOOL:   return AS_BOOL(value) ? 3 : 5;
     case VAL_NIL:    return 7;
     case VAL_NUMBER: return hashDouble(AS_NUMBER(value));

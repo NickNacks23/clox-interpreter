@@ -1,3 +1,4 @@
+#include "vm.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -305,19 +306,25 @@ static ParseRule* getRule(TokenType type) {
 // Variable handling
 
 static uint8_t identifierConstant(Token* name) {
-  ObjString* string = copyString(name->start, name->length);
+  ObjString* identifier = copyString(name->start, name->length);
   Value indexValue;
 
-  if (tableGet(&stringConstants, OBJ_VAL(string), &indexValue)) {
+  if (tableGet(&vm.globalNames, OBJ_VAL(identifier), &indexValue)) {
     return (uint8_t)AS_NUMBER(indexValue);
   }
 
-  uint8_t index = makeConstant(OBJ_VAL(string));
+  if (vm.globalValues.count >= 256) {
+    error("Too many global variables.");
+    return 0;
+  }
 
-  tableSet(&stringConstants, OBJ_VAL(string),
-           NUMBER_VAL((double)index));
+  uint8_t newIndex = (uint8_t)vm.globalValues.count;
+  writeValueArray(&vm.globalValues, UNDEFINED_VAL);
 
-  return index;
+  tableSet(&vm.globalNames, OBJ_VAL(identifier),
+           NUMBER_VAL((double)newIndex));
+
+  return newIndex;
 }
 
 static uint8_t parseVariable(const char* errorMessage) {

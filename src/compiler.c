@@ -59,6 +59,11 @@ Local locals[1024];
 Parser parser;
 Compiler* current = NULL;
 
+
+static int innermostLoopStart = -1;
+static int innermostLoopScopeDepth = 0;
+
+
 Chunk* compilingChunk;
 
 static Table stringConstants;
@@ -367,6 +372,7 @@ static ParseRule rules[] = {
   [TOKEN_LEFT_PAREN]    = {grouping, NULL,   PREC_NONE},
   [TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
   [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE},
+  [TOKEN_CONTINUE] = {NULL, NULL, PREC_NONE},
   [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
   [TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE},
   [TOKEN_DOT]           = {NULL,     NULL,   PREC_NONE},
@@ -694,10 +700,22 @@ static void whileStatement() {
   consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
   int exitJump = emitJump(OP_JUMP_IF_FALSE);
-  emitByte(OP_POP);
+  
+emitByte(OP_POP);
 
-  statement();
-  emitLoop(loopStart);
+int surroundingLoopStart = innermostLoopStart;
+int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+
+innermostLoopStart = loopStart;
+innermostLoopScopeDepth = current->scopeDepth;
+
+statement();
+
+innermostLoopStart = surroundingLoopStart;
+innermostLoopScopeDepth = surroundingLoopScopeDepth;
+
+emitLoop(loopStart);
+
 
   patchJump(exitJump);
   emitByte(OP_POP);
@@ -745,8 +763,20 @@ static void forStatement() {
     patchJump(bodyJump);
   }
 
-  statement();
-  emitLoop(loopStart);
+  
+int surroundingLoopStart = innermostLoopStart;
+int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+
+innermostLoopStart = loopStart;
+innermostLoopScopeDepth = current->scopeDepth;
+
+statement();
+
+innermostLoopStart = surroundingLoopStart;
+innermostLoopScopeDepth = surroundingLoopScopeDepth;
+
+emitLoop(loopStart);
+
 
   if (exitJump != -1) {
     patchJump(exitJump);
@@ -833,6 +863,30 @@ static void switchStatement() {
 
 
 
+static void continueStatement() {
+  if (innermostLoopStart == -1) {
+    error("Can't use 'continue' outside of a loop.");
+  }
+
+  consume(TOKEN_SEMICOLON,
+          "Expect ';' after 'continue'.");
+
+  if (innermostLoopStart == -1) return;
+
+  // Remove local variables belonging to scopes
+  // inside the current loop.
+  for (int i = current->localCount - 1;
+       i >= 0 &&
+       current->locals[i].depth > innermostLoopScopeDepth;
+       i--) {
+    emitByte(OP_POP);
+  }
+
+  emitLoop(innermostLoopStart);
+}
+
+
+
 static void statement() {
   if (match(TOKEN_PRINT)) {
     printStatement();
@@ -842,6 +896,10 @@ static void statement() {
     ifStatement();
   } else if (match(TOKEN_WHILE)) {
     whileStatement();
+
+} else if (match(TOKEN_CONTINUE)) {
+  continueStatement();
+
     } else if (match(TOKEN_SWITCH)) {
   switchStatement();
   } else if (match(TOKEN_LEFT_BRACE)) {

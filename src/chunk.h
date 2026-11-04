@@ -5,40 +5,44 @@
 #include "common.h"
 #include "value.h"
 
-
-
 typedef enum {
   OP_CONSTANT,
   OP_CONSTANT_LONG,  // Keep from Chapter 14
+
   OP_NIL,
   OP_TRUE,
   OP_FALSE,
+
   OP_EQUAL,
   OP_GREATER,
   OP_LESS,
+
   OP_ADD,
   OP_SUBTRACT,
   OP_MULTIPLY,
   OP_DIVIDE,
+
   OP_NOT,
   OP_NEGATE,
 
-OP_JUMP,
-OP_JUMP_IF_FALSE,
-OP_LOOP,
-
-  OP_RETURN,
   OP_POP,
+  OP_DUP,
 
-OP_GET_LOCAL,
-OP_SET_LOCAL,
+  OP_GET_LOCAL,
+  OP_SET_LOCAL,
 
-OP_GET_GLOBAL,
-OP_DEFINE_GLOBAL,
-OP_SET_GLOBAL,
-OP_PRINT,
+  OP_GET_GLOBAL,
+  OP_DEFINE_GLOBAL,
+  OP_SET_GLOBAL,
+
+  OP_PRINT,
+
+  OP_JUMP,
+  OP_JUMP_IF_FALSE,
+  OP_LOOP,
+
+  OP_RETURN
 } OpCode;
-
 
 typedef struct {
   int offset;
@@ -55,7 +59,6 @@ typedef struct {
   int lineCapacity;
   LineStart* lines;
 } Chunk;
-
 
 void writeConstant(Chunk* chunk, Value value, int line);
 

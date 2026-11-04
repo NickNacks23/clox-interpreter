@@ -167,6 +167,10 @@ static InterpretResult run() {
         push(BOOL_VAL(false));
         break;
 
+case OP_DUP:
+  push(peek(0));
+  break;
+
         case OP_POP:
   pop();
   break;

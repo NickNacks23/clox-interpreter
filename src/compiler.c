@@ -389,6 +389,11 @@ static ParseRule rules[] = {
   [TOKEN_STRING]        = {string,   NULL,   PREC_NONE},
   [TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
 [TOKEN_AND] = {NULL, and_, PREC_AND},
+
+[TOKEN_CASE]    = {NULL, NULL, PREC_NONE},
+[TOKEN_DEFAULT] = {NULL, NULL, PREC_NONE},
+[TOKEN_SWITCH]  = {NULL, NULL, PREC_NONE},
+
   [TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
   [TOKEN_CONST] = {NULL, NULL, PREC_NONE},
   [TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
@@ -753,6 +758,81 @@ static void forStatement() {
 
 
 
+
+#define MAX_CASES 256
+
+static void switchStatement() {
+  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
+  expression();
+  consume(TOKEN_RIGHT_PAREN, "Expect ')' after value.");
+  consume(TOKEN_LEFT_BRACE, "Expect '{' before switch cases.");
+
+  // 0 = before cases, 1 = cases, 2 = after default.
+  int state = 0;
+  int caseEnds[MAX_CASES];
+  int caseCount = 0;
+  int previousCaseSkip = -1;
+
+  while (!match(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+    if (match(TOKEN_CASE) || match(TOKEN_DEFAULT)) {
+      TokenType caseType = parser.previous.type;
+
+      if (state == 2) {
+        error("Can't have another case after default.");
+      }
+
+      if (state == 1) {
+        int endJump = emitJump(OP_JUMP);
+
+        if (caseCount >= MAX_CASES) {
+          error("Too many switch cases.");
+        } else {
+          caseEnds[caseCount++] = endJump;
+        }
+
+        patchJump(previousCaseSkip);
+        emitByte(OP_POP);
+      }
+
+      if (caseType == TOKEN_CASE) {
+        state = 1;
+
+        emitByte(OP_DUP);
+        expression();
+
+        consume(TOKEN_COLON, "Expect ':' after case value.");
+
+        emitByte(OP_EQUAL);
+        previousCaseSkip = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP);
+      } else {
+        state = 2;
+        consume(TOKEN_COLON, "Expect ':' after default.");
+        previousCaseSkip = -1;
+      }
+    } else {
+      if (state == 0) {
+        error("Can't have statements before any case.");
+      }
+
+      statement();
+    }
+  }
+
+  if (state == 1) {
+    patchJump(previousCaseSkip);
+    emitByte(OP_POP);
+  }
+
+  for (int i = 0; i < caseCount; i++) {
+    patchJump(caseEnds[i]);
+  }
+
+  emitByte(OP_POP);
+}
+
+
+
 static void statement() {
   if (match(TOKEN_PRINT)) {
     printStatement();
@@ -762,6 +842,8 @@ static void statement() {
     ifStatement();
   } else if (match(TOKEN_WHILE)) {
     whileStatement();
+    } else if (match(TOKEN_SWITCH)) {
+  switchStatement();
   } else if (match(TOKEN_LEFT_BRACE)) {
     beginScope();
     block();

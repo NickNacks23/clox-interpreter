@@ -1,0 +1,12 @@
+
+var a = "global";
+
+{
+  var a = "local";
+  print a;
+
+  a = "updated";
+  print a;
+}
+
+print a;

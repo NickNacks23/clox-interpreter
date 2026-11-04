@@ -1,3 +1,4 @@
+#include "table.h"
 
 #ifndef clox_vm_h
 #define clox_vm_h
@@ -12,7 +13,10 @@ typedef struct {
   int stackCapacity;
   int stackCount;
   Value* stack;
-  Obj* objects;
+  Table globalNames;
+ValueArray globalValues;
+Table strings;
+Obj* objects;
 } VM;
 
 typedef enum {

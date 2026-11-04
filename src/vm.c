@@ -31,7 +31,11 @@ static void runtimeError(const char* format, ...) {
   resetStack();
 }
 
-void initVM() { vm.objects = NULL;
+void initVM() { 
+  vm.objects = NULL;
+  initTable(&vm.globalNames);
+initValueArray(&vm.globalValues);
+initTable(&vm.strings);
   vm.stackCapacity = 0;
   vm.stackCount = 0;
   vm.stack = NULL;
@@ -43,7 +47,10 @@ void freeVM() {
   vm.stack = NULL;
   vm.stackCapacity = 0;
   vm.stackCount = 0;
-  freeObjects();
+  freeTable(&vm.globalNames);
+freeValueArray(&vm.globalValues);
+freeTable(&vm.strings);
+freeObjects();
 }
 
 void push(Value value) {
@@ -67,6 +74,16 @@ static Value peek(int distance) {
   return vm.stack[vm.stackCount - 1 - distance];
 }
 
+
+static uint16_t readLocalSlot() {
+  uint16_t slot = (uint16_t)(
+      (vm.ip[0] << 8) | vm.ip[1]
+  );
+  vm.ip += 2;
+  return slot;
+}
+
+
 static bool isFalsey(Value value) {
   return IS_NIL(value) ||
          (IS_BOOL(value) && !AS_BOOL(value));
@@ -77,21 +94,24 @@ static void concatenate() {
   ObjString* a = AS_STRING(pop());
 
   int length = a->length + b->length;
-  ObjString* result = (ObjString*)NULL;
+  char* chars = ALLOCATE(char, length + 1);
 
-  // Allocate a single object containing the characters.
-  result = makeString(length);
+  memcpy(chars, a->chars, a->length);
+  memcpy(chars + a->length, b->chars, b->length);
+  chars[length] = '\0';
 
-  memcpy(result->chars, a->chars, a->length);
-  memcpy(result->chars + a->length, b->chars, b->length);
-  result->chars[length] = '\0';
-
+  ObjString* result = takeString(chars, length);
   push(OBJ_VAL(result));
 }
 
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++)
+
+#define READ_SHORT() \
+  (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
+
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+#define READ_STRING() AS_STRING(READ_CONSTANT())
 #define READ_CONSTANT_LONG() (vm.chunk->constants.values[ \
     (uint32_t)READ_BYTE() | \
     ((uint32_t)READ_BYTE() << 8) | \
@@ -147,6 +167,60 @@ static InterpretResult run() {
         push(BOOL_VAL(false));
         break;
 
+case OP_DUP:
+  push(peek(0));
+  break;
+
+        case OP_POP:
+  pop();
+  break;
+
+
+
+case OP_GET_LOCAL: {
+  uint16_t slot = readLocalSlot();
+  push(vm.stack[slot]);
+  break;
+}
+
+case OP_SET_LOCAL: {
+  uint16_t slot = readLocalSlot();
+  vm.stack[slot] = peek(0);
+  break;
+}
+
+
+
+ case OP_GET_GLOBAL: {
+  Value value = vm.globalValues.values[READ_BYTE()];
+
+  if (IS_UNDEFINED(value)) {
+    runtimeError("Undefined variable.");
+    return INTERPRET_RUNTIME_ERROR;
+  }
+
+  push(value);
+  break;
+}
+
+case OP_DEFINE_GLOBAL: {
+  vm.globalValues.values[READ_BYTE()] = pop();
+  break;
+}
+
+case OP_SET_GLOBAL: {
+  uint8_t index = READ_BYTE();
+
+  if (IS_UNDEFINED(vm.globalValues.values[index])) {
+    runtimeError("Undefined variable.");
+    return INTERPRET_RUNTIME_ERROR;
+  }
+
+  vm.globalValues.values[index] = peek(0);
+  break;
+}
+
+
       case OP_EQUAL: {
         Value b = pop();
         Value a = pop();
@@ -200,11 +274,37 @@ static InterpretResult run() {
         push(NUMBER_VAL(-AS_NUMBER(pop())));
         break;
 
+        case OP_PRINT: {
+  printValue(pop());
+  printf("\n");
+  break;
+}
+
+
+
+case OP_JUMP: {
+  uint16_t offset = READ_SHORT();
+  vm.ip += offset;
+  break;
+}
+
+case OP_JUMP_IF_FALSE: {
+  uint16_t offset = READ_SHORT();
+  if (isFalsey(peek(0))) vm.ip += offset;
+  break;
+}
+
+case OP_LOOP: {
+  uint16_t offset = READ_SHORT();
+  vm.ip -= offset;
+  break;
+}
+
+
+
       case OP_RETURN: {
-        printValue(pop());
-        printf("\n");
-        return INTERPRET_OK;
-      }
+  return INTERPRET_OK;
+}
 
       default:
         return INTERPRET_RUNTIME_ERROR;
@@ -213,6 +313,7 @@ static InterpretResult run() {
 
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_STRING
 #undef READ_CONSTANT_LONG
 #undef BINARY_OP
 }

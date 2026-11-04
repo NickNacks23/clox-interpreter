@@ -31,6 +31,7 @@ void freeValueArray(ValueArray* array) {
 
 void printValue(Value value) {
   switch (value.type) {
+    case VAL_UNDEFINED: printf("<undefined>"); break;
     case VAL_BOOL:
       printf(AS_BOOL(value) ? "true" : "false");
       break;
@@ -41,6 +42,7 @@ void printValue(Value value) {
       printf("%g", AS_NUMBER(value));
       break;
       case VAL_OBJ: printObject(value); break;
+      case VAL_EMPTY: printf("<empty>"); break;
   }
 }
 
@@ -49,20 +51,41 @@ bool valuesEqual(Value a, Value b) {
 
   switch (a.type) {
     
+    case VAL_UNDEFINED: return true;
     case VAL_BOOL:
       return AS_BOOL(a) == AS_BOOL(b);
     case VAL_NIL:
       return true;
     case VAL_NUMBER:
       return AS_NUMBER(a) == AS_NUMBER(b);
-      case VAL_OBJ: {
-  ObjString* aString = AS_STRING(a);
-  ObjString* bString = AS_STRING(b);
-  return aString->length == bString->length &&
-      memcmp(aString->chars, bString->chars,
-             aString->length) == 0;
-}
+      case VAL_OBJ:
+  return AS_OBJ(a) == AS_OBJ(b);
+  case VAL_EMPTY: return true;
     default:
       return false;
   }
+}
+
+static uint32_t hashDouble(double value) {
+  union BitCast {
+    double value;
+    uint32_t ints[2];
+  };
+
+  union BitCast cast;
+  cast.value = value + 1.0;
+  return cast.ints[0] + cast.ints[1];
+}
+
+uint32_t hashValue(Value value) {
+  switch (value.type) {
+    case VAL_UNDEFINED: return 0;
+    case VAL_BOOL:   return AS_BOOL(value) ? 3 : 5;
+    case VAL_NIL:    return 7;
+    case VAL_NUMBER: return hashDouble(AS_NUMBER(value));
+    case VAL_OBJ:    return AS_STRING(value)->hash;
+    case VAL_EMPTY:  return 0;
+  }
+
+  return 0;
 }

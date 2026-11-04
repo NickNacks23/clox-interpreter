@@ -1,0 +1,23 @@
+
+switch (5) {
+  case 1:
+    print "One";
+  case 2:
+    print "Two";
+  default:
+    print "Default works!";
+}
+
+switch (10) {
+  case 1:
+    print "Wrong";
+  case 2:
+    print "Wrong again";
+}
+
+print "No match works!";
+
+switch (3) {
+  default:
+    print "Default only works!";
+}

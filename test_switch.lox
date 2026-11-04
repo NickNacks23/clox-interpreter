@@ -1,0 +1,15 @@
+
+var number = 2;
+
+switch (number) {
+  case 1:
+    print "One";
+  case 2:
+    print "Two";
+  case 3:
+    print "Three";
+  default:
+    print "Other";
+}
+
+print "Switch complete!";

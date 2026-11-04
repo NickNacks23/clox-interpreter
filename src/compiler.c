@@ -51,7 +51,7 @@ typedef struct {
 } Local;
 
 typedef struct {
-  Local locals[256];
+Local locals[1024];
   int localCount;
   int scopeDepth;
 } Compiler;
@@ -130,6 +130,14 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
   emitByte(byte1);
   emitByte(byte2);
 }
+
+
+static void emitLocal(uint8_t opcode, int slot) {
+  emitByte(opcode);
+  emitByte((uint8_t)((slot >> 8) & 0xff));
+  emitByte((uint8_t)(slot & 0xff));
+}
+
 
 static void emitReturn() {
   emitByte(OP_RETURN);
@@ -380,7 +388,7 @@ static bool identifiersEqual(Token* a, Token* b) {
   return memcmp(a->start, b->start, a->length) == 0;
 }
 
-static void addLocal(Token name, bool isConst) {  if (current->localCount == 256) {
+static void addLocal(Token name, bool isConst) {  if (current->localCount == 1024) {
     error("Too many local variables in function.");
     return;
   }
@@ -462,13 +470,15 @@ static int resolveLocal(Compiler* compiler, Token* name) {
 
 
 
+
 static void namedVariable(Token name, bool canAssign) {
   uint8_t getOp, setOp;
   bool isConst = false;
 
   int arg = resolveLocal(current, &name);
+  bool isLocal = arg != -1;
 
-  if (arg != -1) {
+  if (isLocal) {
     getOp = OP_GET_LOCAL;
     setOp = OP_SET_LOCAL;
     isConst = current->locals[arg].isConst;
@@ -486,11 +496,20 @@ static void namedVariable(Token name, bool canAssign) {
       errorAt(&name, "Can't assign to a constant variable.");
     }
 
-    emitBytes(setOp, (uint8_t)arg);
+    if (isLocal) {
+      emitLocal(setOp, arg);
+    } else {
+      emitBytes(setOp, (uint8_t)arg);
+    }
   } else {
-    emitBytes(getOp, (uint8_t)arg);
+    if (isLocal) {
+      emitLocal(getOp, arg);
+    } else {
+      emitBytes(getOp, (uint8_t)arg);
+    }
   }
 }
+
 
 
 

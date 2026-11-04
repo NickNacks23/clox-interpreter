@@ -74,6 +74,16 @@ static Value peek(int distance) {
   return vm.stack[vm.stackCount - 1 - distance];
 }
 
+
+static uint16_t readLocalSlot() {
+  uint16_t slot = (uint16_t)(
+      (vm.ip[0] << 8) | vm.ip[1]
+  );
+  vm.ip += 2;
+  return slot;
+}
+
+
 static bool isFalsey(Value value) {
   return IS_NIL(value) ||
          (IS_BOOL(value) && !AS_BOOL(value));
@@ -158,16 +168,19 @@ static InterpretResult run() {
   break;
 
 
+
 case OP_GET_LOCAL: {
-  uint8_t slot = READ_BYTE();
+  uint16_t slot = readLocalSlot();
   push(vm.stack[slot]);
   break;
 }
+
 case OP_SET_LOCAL: {
-  uint8_t slot = READ_BYTE();
+  uint16_t slot = readLocalSlot();
   vm.stack[slot] = peek(0);
   break;
 }
+
 
 
  case OP_GET_GLOBAL: {

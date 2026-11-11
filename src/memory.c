@@ -17,21 +17,29 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
 
 static void freeObject(Obj* object) {
   switch (object->type) {
+    case OBJ_FUNCTION: {
+      ObjFunction* function = (ObjFunction*)object;
+      freeChunk(&function->chunk);
+      FREE(ObjFunction, object);
+      break;
+    }
+
     case OBJ_STRING: {
-  ObjString* string = (ObjString*)object;
+      ObjString* string = (ObjString*)object;
 
-  if (string->ownsChars) {
-    FREE_ARRAY(char, (char*)string->chars, string->length + 1);
-  }
+      if (string->ownsChars) {
+        FREE_ARRAY(char, (char*)string->chars, string->length + 1);
+      }
 
-  FREE(ObjString, object);
-  break;
-}
+      FREE(ObjString, object);
+      break;
+    }
   }
 }
 
 void freeObjects() {
   Obj* object = vm.objects;
+
   while (object != NULL) {
     Obj* next = object->next;
     freeObject(object);

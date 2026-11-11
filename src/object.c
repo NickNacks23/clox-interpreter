@@ -29,6 +29,14 @@ static Obj* allocateObject(size_t size, ObjType type) {
   return object;
 }
 
+ObjFunction* newFunction() {
+  ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+  function->arity = 0;
+  function->name = NULL;
+  initChunk(&function->chunk);
+  return function;
+}
+
 static ObjString* makeString(bool ownsChars, const char* chars,
                              int length) {
   uint32_t hash = hashString(chars, length);
@@ -81,8 +89,19 @@ ObjString* takeString(char* chars, int length) {
 
 void printObject(Value value) {
   switch (OBJ_TYPE(value)) {
+    case OBJ_FUNCTION: {
+      ObjFunction* function = AS_FUNCTION(value);
+
+      if (function->name == NULL) {
+        printf("<script>");
+      } else {
+        printf("<fn %s>", function->name->chars);
+      }
+      break;
+    }
+
     case OBJ_STRING:
-printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));
-    break;
+      printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));
+      break;
   }
 }

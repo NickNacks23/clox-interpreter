@@ -5,6 +5,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include <time.h>
+
 #include "common.h"
 #include "compiler.h"
 #include "debug.h"
@@ -12,7 +14,8 @@
 #include "vm.h"
 
 VM vm;
-
+static bool clockNative(int argCount, Value* args);
+static bool errorNative(int argCount, Value* args);
 static void resetStack() {
   vm.stackCount = 0;
   vm.frameCount = 0;
@@ -48,6 +51,20 @@ static void runtimeError(const char* format, ...) {
 }
 
 
+
+static void defineNative(const char* name, NativeFn function,
+                         int arity) {
+  push(OBJ_VAL(copyString(name, (int)strlen(name))));
+  push(OBJ_VAL(newNative(function, arity)));
+
+  tableSet(&vm.globalNames, vm.stack[vm.stackCount - 2],
+           NUMBER_VAL((double)vm.globalValues.count));
+
+  writeValueArray(&vm.globalValues, pop());
+  pop();
+}
+
+
 void initVM() { 
   vm.frameCount = 0;
   vm.objects = NULL;
@@ -58,6 +75,8 @@ initTable(&vm.strings);
   vm.stackCount = 0;
   vm.stack = NULL;
   resetStack();
+  defineNative("clock", clockNative, 0);
+  defineNative("testError", errorNative, 0);
 }
 
 void freeVM() {
@@ -112,10 +131,48 @@ static bool call(ObjFunction* function, int argCount) {
   return true;
 }
 
+static bool clockNative(int argCount, Value* args) {
+  args[-1] = NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+  return true;
+}
+
+static bool errorNative(int argCount, Value* args) {
+  args[-1] = OBJ_VAL(copyString("Test error!", 11));
+  return false;
+}
+
 static bool callValue(Value callee, int argCount) {
   if (IS_FUNCTION(callee)) {
     return call(AS_FUNCTION(callee), argCount);
   }
+
+  
+if (IS_NATIVE(callee)) {
+  ObjNative* nativeObj = (ObjNative*)AS_OBJ(callee);
+
+  // Check the number of arguments.
+  if (argCount != nativeObj->arity) {
+    runtimeError("Expected %d arguments but got %d.",
+                 nativeObj->arity, argCount);
+    return false;
+  }
+
+  // Get the arguments from the stack.
+  Value* args = &vm.stack[vm.stackCount - argCount];
+
+  // Call the native function.
+  if (nativeObj->function(argCount, args)) {
+    // Keep the result and remove the arguments.
+    vm.stackCount -= argCount;
+    return true;
+  } else {
+    // Display the error message.
+    runtimeError("%s",
+        AS_CSTRING(vm.stack[vm.stackCount - argCount - 1]));
+    return false;
+  }
+}
+
 
   runtimeError("Can only call functions.");
   return false;

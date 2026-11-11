@@ -16,6 +16,8 @@
 VM vm;
 static bool clockNative(int argCount, Value* args);
 static bool errorNative(int argCount, Value* args);
+static bool squareNative(int argCount, Value* args);
+static bool absNative(int argCount, Value* args);
 static void resetStack() {
   vm.stackCount = 0;
   vm.frameCount = 0;
@@ -77,6 +79,8 @@ initTable(&vm.strings);
   resetStack();
   defineNative("clock", clockNative, 0);
   defineNative("testError", errorNative, 0);
+  defineNative("square", squareNative, 1);
+defineNative("abs", absNative, 1);
 }
 
 void freeVM() {
@@ -140,6 +144,35 @@ static bool errorNative(int argCount, Value* args) {
   args[-1] = OBJ_VAL(copyString("Test error!", 11));
   return false;
 }
+
+
+static bool squareNative(int argCount, Value* args) {
+  if (!IS_NUMBER(args[0])) {
+    args[-1] = OBJ_VAL(copyString("Expected a number.", 18));
+    return false;
+  }
+
+  double number = AS_NUMBER(args[0]);
+  args[-1] = NUMBER_VAL(number * number);
+  return true;
+}
+
+static bool absNative(int argCount, Value* args) {
+  if (!IS_NUMBER(args[0])) {
+    args[-1] = OBJ_VAL(copyString("Expected a number.", 18));
+    return false;
+  }
+
+  double number = AS_NUMBER(args[0]);
+
+  if (number < 0) {
+    number = -number;
+  }
+
+  args[-1] = NUMBER_VAL(number);
+  return true;
+}
+
 
 static bool callValue(Value callee, int argCount) {
   if (IS_FUNCTION(callee)) {

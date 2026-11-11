@@ -5,6 +5,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include <time.h>
+
 #include "common.h"
 #include "compiler.h"
 #include "debug.h"
@@ -12,6 +14,7 @@
 #include "vm.h"
 
 VM vm;
+static Value clockNative(int argCount, Value* args);
 
 static void resetStack() {
   vm.stackCount = 0;
@@ -48,6 +51,20 @@ static void runtimeError(const char* format, ...) {
 }
 
 
+
+static void defineNative(const char* name, NativeFn function,
+                         int arity) {
+  push(OBJ_VAL(copyString(name, (int)strlen(name))));
+  push(OBJ_VAL(newNative(function, arity)));
+
+  tableSet(&vm.globalNames, vm.stack[vm.stackCount - 2],
+           NUMBER_VAL((double)vm.globalValues.count));
+
+  writeValueArray(&vm.globalValues, pop());
+  pop();
+}
+
+
 void initVM() { 
   vm.frameCount = 0;
   vm.objects = NULL;
@@ -58,6 +75,7 @@ initTable(&vm.strings);
   vm.stackCount = 0;
   vm.stack = NULL;
   resetStack();
+  defineNative("clock", clockNative, 0);
 }
 
 void freeVM() {
@@ -112,9 +130,30 @@ static bool call(ObjFunction* function, int argCount) {
   return true;
 }
 
+static Value clockNative(int argCount, Value* args) {
+  return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
+
 static bool callValue(Value callee, int argCount) {
   if (IS_FUNCTION(callee)) {
     return call(AS_FUNCTION(callee), argCount);
+  }
+
+  if (IS_NATIVE(callee)) {
+    ObjNative* nativeObj = (ObjNative*)AS_OBJ(callee);
+
+    if (argCount != nativeObj->arity) {
+      runtimeError("Expected %d arguments but got %d.",
+                   nativeObj->arity, argCount);
+      return false;
+    }
+
+    Value result = nativeObj->function(
+        argCount, &vm.stack[vm.stackCount - argCount]);
+
+    vm.stackCount -= argCount + 1;
+    push(result);
+    return true;
   }
 
   runtimeError("Can only call functions.");

@@ -37,6 +37,16 @@ ObjFunction* newFunction() {
   return function;
 }
 
+
+ObjNative* newNative(NativeFn function, int arity) {
+  ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+  native->arity = arity;
+  native->function = function;
+  return native;
+}
+
+
+
 static ObjString* makeString(bool ownsChars, const char* chars,
                              int length) {
   uint32_t hash = hashString(chars, length);
@@ -99,6 +109,10 @@ void printObject(Value value) {
       }
       break;
     }
+
+    case OBJ_NATIVE:
+  printf("<native fn>");
+  break;
 
     case OBJ_STRING:
       printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));

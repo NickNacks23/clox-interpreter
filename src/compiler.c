@@ -76,8 +76,19 @@ Parser parser;
 Compiler* current = NULL;
 
 
-static int innermostLoopStart = -1;
-static int innermostLoopScopeDepth = 0;
+// Track the loop being compiled, including a pending set of forward continue
+// jumps when a for-loop needs to copy the per-iteration variable back.
+typedef struct LoopContext {
+  struct LoopContext* enclosing;
+  int start;
+  int scopeDepth;
+  bool continueToEpilogue;
+  int* continueJumps;
+  int continueJumpCount;
+  int continueJumpCapacity;
+} LoopContext;
+
+static LoopContext* innermostLoop = NULL;
 
 
 static Table stringConstants;
@@ -735,11 +746,9 @@ static void block() {
 
 
 static void function(FunctionType type) {
-  // Continue targets belong to one function, never a containing function.
-  int enclosingLoopStart = innermostLoopStart;
-  int enclosingLoopDepth = innermostLoopScopeDepth;
-  innermostLoopStart = -1;
-  innermostLoopScopeDepth = 0;
+  // A nested function must never see the loops of its enclosing function.
+  LoopContext* enclosingLoop = innermostLoop;
+  innermostLoop = NULL;
 
   Compiler compiler;
   initCompiler(&compiler, type);
@@ -768,8 +777,7 @@ static void function(FunctionType type) {
   block();
 
   ObjFunction* function = endCompiler();
-  innermostLoopStart = enclosingLoopStart;
-  innermostLoopScopeDepth = enclosingLoopDepth;
+  innermostLoop = enclosingLoop;
 
   uint8_t functionConstant = makeConstant(OBJ_VAL(function));
   if (function->upvalueCount == 0) {
@@ -888,23 +896,22 @@ static void whileStatement() {
   consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
 
   int exitJump = emitJump(OP_JUMP_IF_FALSE);
-  
-emitByte(OP_POP);
+  emitByte(OP_POP);
 
-int surroundingLoopStart = innermostLoopStart;
-int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+  LoopContext loop = {
+    .enclosing = innermostLoop,
+    .start = loopStart,
+    .scopeDepth = current->scopeDepth,
+    .continueToEpilogue = false,
+    .continueJumps = NULL,
+    .continueJumpCount = 0,
+    .continueJumpCapacity = 0
+  };
+  innermostLoop = &loop;
+  statement();
+  innermostLoop = loop.enclosing;
 
-innermostLoopStart = loopStart;
-innermostLoopScopeDepth = current->scopeDepth;
-
-statement();
-
-innermostLoopStart = surroundingLoopStart;
-innermostLoopScopeDepth = surroundingLoopScopeDepth;
-
-emitLoop(loopStart);
-
-
+  emitLoop(loopStart);
   patchJump(exitJump);
   emitByte(OP_POP);
 }
@@ -913,26 +920,33 @@ emitLoop(loopStart);
 static void forStatement() {
   beginScope();
 
-  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+  // The for initializer can introduce a local. Only that declared loop
+  // variable receives a new independent captured value each iteration.
+  int loopVariable = -1;
+  Token loopVariableName;
+  bool loopVariableIsConst = false;
 
+  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
   if (match(TOKEN_SEMICOLON)) {
     // No initializer.
   } else if (match(TOKEN_VAR)) {
+    loopVariableName = parser.current;
     varDeclaration(false);
+    loopVariable = current->localCount - 1;
   } else if (match(TOKEN_CONST)) {
+    loopVariableName = parser.current;
+    loopVariableIsConst = true;
     varDeclaration(true);
+    loopVariable = current->localCount - 1;
   } else {
     expressionStatement();
   }
 
   int loopStart = currentChunk()->count;
   int exitJump = -1;
-
   if (!match(TOKEN_SEMICOLON)) {
     expression();
-    consume(TOKEN_SEMICOLON,
-            "Expect ';' after loop condition.");
-
+    consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
     exitJump = emitJump(OP_JUMP_IF_FALSE);
     emitByte(OP_POP);
   }
@@ -940,41 +954,63 @@ static void forStatement() {
   if (!match(TOKEN_RIGHT_PAREN)) {
     int bodyJump = emitJump(OP_JUMP);
     int incrementStart = currentChunk()->count;
-
     expression();
     emitByte(OP_POP);
-    consume(TOKEN_RIGHT_PAREN,
-            "Expect ')' after for clauses.");
-
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
     emitLoop(loopStart);
     loopStart = incrementStart;
     patchJump(bodyJump);
   }
 
-  
-int surroundingLoopStart = innermostLoopStart;
-int surroundingLoopScopeDepth = innermostLoopScopeDepth;
+  int innerVariable = -1;
+  if (loopVariable != -1) {
+    // Challenge 2: make a fresh local for the body that shadows the loop
+    // variable. Closures in this iteration capture this fresh local.
+    beginScope();
+    emitLocal(OP_GET_LOCAL, loopVariable);
+    addLocal(loopVariableName, loopVariableIsConst);
+    markInitialized();
+    innerVariable = current->localCount - 1;
+  }
 
-innermostLoopStart = loopStart;
-innermostLoopScopeDepth = current->scopeDepth;
+  LoopContext loop = {
+    .enclosing = innermostLoop,
+    .start = loopStart,
+    .scopeDepth = current->scopeDepth,
+    .continueToEpilogue = innerVariable != -1,
+    .continueJumps = NULL,
+    .continueJumpCount = 0,
+    .continueJumpCapacity = 0
+  };
+  innermostLoop = &loop;
+  statement();
+  innermostLoop = loop.enclosing;
 
-statement();
+  // A continue in a for-loop with a copied iteration variable must pass
+  // through the copy-back/close-upvalue epilogue, not jump straight to the
+  // increment. Patch those forward jumps to right here.
+  for (int i = 0; i < loop.continueJumpCount; i++) {
+    patchJump(loop.continueJumps[i]);
+  }
+  free(loop.continueJumps);
 
-innermostLoopStart = surroundingLoopStart;
-innermostLoopScopeDepth = surroundingLoopScopeDepth;
+  if (innerVariable != -1) {
+    // Propagate changes made inside the loop body to the original loop
+    // variable so its condition and increment work as expected.
+    emitLocal(OP_GET_LOCAL, innerVariable);
+    emitLocal(OP_SET_LOCAL, loopVariable);
+    emitByte(OP_POP);
+    // Closes the iteration's captured variable, if it was captured.
+    endScope();
+  }
 
-emitLoop(loopStart);
-
-
+  emitLoop(loopStart);
   if (exitJump != -1) {
     patchJump(exitJump);
     emitByte(OP_POP);
   }
-
   endScope();
 }
-
-
 
 
 #define MAX_CASES 256
@@ -1052,25 +1088,38 @@ static void switchStatement() {
 
 
 static void continueStatement() {
-  if (innermostLoopStart == -1) {
+  if (innermostLoop == NULL) {
     error("Can't use 'continue' outside of a loop.");
   }
+  consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+  if (innermostLoop == NULL) return;
 
-  consume(TOKEN_SEMICOLON,
-          "Expect ';' after 'continue'.");
-
-  if (innermostLoopStart == -1) return;
-
-  // Remove local variables belonging to scopes
-  // inside the current loop.
+  // Discard only the locals scoped inside the current loop body. For a
+  // per-iteration copy, keep that copy alive until its epilogue executes.
   for (int i = current->localCount - 1;
-       i >= 0 &&
-       current->locals[i].depth > innermostLoopScopeDepth;
+       i >= 0 && current->locals[i].depth > innermostLoop->scopeDepth;
        i--) {
     emitByte(current->locals[i].isCaptured ? OP_CLOSE_UPVALUE : OP_POP);
   }
 
-  emitLoop(innermostLoopStart);
+  if (innermostLoop->continueToEpilogue) {
+    int jump = emitJump(OP_JUMP);
+    if (innermostLoop->continueJumpCount == innermostLoop->continueJumpCapacity) {
+      int capacity = innermostLoop->continueJumpCapacity == 0
+          ? 8 : innermostLoop->continueJumpCapacity * 2;
+      int* next = (int*)realloc(innermostLoop->continueJumps,
+                                sizeof(int) * capacity);
+      if (next == NULL) {
+        error("Out of memory recording continue statements.");
+        return;
+      }
+      innermostLoop->continueJumps = next;
+      innermostLoop->continueJumpCapacity = capacity;
+    }
+    innermostLoop->continueJumps[innermostLoop->continueJumpCount++] = jump;
+  } else {
+    emitLoop(innermostLoop->start);
+  }
 }
 
 
@@ -1130,6 +1179,7 @@ ObjFunction* compile(const char* source) {
   parser.panicMode = false;
 
   current = NULL;
+  innermostLoop = NULL;
 
   Compiler compiler;
   initCompiler(&compiler, TYPE_SCRIPT);

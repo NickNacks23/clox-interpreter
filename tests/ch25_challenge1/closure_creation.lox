@@ -1,0 +1,13 @@
+// Creates a capturing inner function, and a noncapturing outer function.
+var start = clock();
+var result = 0;
+for (var i = 0; i < 100000; i = i + 1) {
+  fun outer(a, b, c) {
+    fun inner() { return a + b + c; }
+    return inner;
+  }
+  var closure = outer(i, i, i);
+  result = closure();
+}
+print result;              // Expected 299997
+print clock() - start;

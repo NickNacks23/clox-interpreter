@@ -34,9 +34,9 @@ SUCCESS = {
         'fun test(){var f;{var x="block";fun inner(){return x;}f=inner;}'
         'var x="new";return f();}print test();',
         'block\n'),
-    'for captures shared iteration variable before Challenge 2': (
+    'for captures a distinct iteration variable after Challenge 2': (
         'var f;for(var i=0;i<3;i=i+1){fun get(){return i;}if(i==1)f=get;}print f();',
-        '3\n'),
+        '1\n'),
     'deep function calls keep closure alive': (
         'fun maker(z){var x=z;fun capture(){return x;}return capture;}'
         'var f=maker(21);fun dive(n){if(n==0)return f();return dive(n-1);}print dive(45);',

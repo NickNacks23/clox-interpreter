@@ -1,0 +1,41 @@
+// Chapter 25 - Challenge 3: Two-dimensional vectors using closures.
+// A vector is represented by a function that responds to method names.
+
+fun makeVector(x, y) {
+  // This method remembers the current vector's coordinates.
+  fun add(other) {
+    var sumX = x + other("x");
+    var sumY = y + other("y");
+    return makeVector(sumX, sumY);
+  }
+
+  // The returned closure acts like an object with two fields and a method.
+  fun respond(method) {
+    if (method == "x") return x;
+    if (method == "y") return y;
+    if (method == "add") return add;
+
+    print "Unknown vector method.";
+    return nil;
+  }
+
+  return respond;
+}
+
+var a = makeVector(1, 2);
+var b = makeVector(3, 4);
+var c = a("add")(b);
+
+print c("x"); // 4
+print c("y"); // 6
+
+// Adding creates a new vector without changing the originals.
+print a("x"); // 1
+print a("y"); // 2
+print b("x"); // 3
+print b("y"); // 4
+
+// Reuse addition on the newly created vector.
+var d = c("add")(makeVector(-2, 5));
+print d("x"); // 2
+print d("y"); // 11

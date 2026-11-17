@@ -10,7 +10,8 @@
 #define FRAMES_MAX 64
 
 typedef struct {
-  ObjFunction* function;
+  // Either an ObjFunction (no captured variables) or ObjClosure.
+  Obj* callable;
   uint8_t* ip;
   int slotStart;
 } CallFrame;
@@ -26,6 +27,7 @@ typedef struct {
   Table globalNames;
   ValueArray globalValues;
   Table strings;
+  ObjUpvalue* openUpvalues;
   Obj* objects;
 } VM;
 

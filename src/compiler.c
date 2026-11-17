@@ -48,7 +48,14 @@ typedef struct {
   Token name;
   int depth;
   bool isConst;
+  bool isCaptured;
 } Local;
+
+typedef struct {
+  uint16_t index; // Up to 1024 local slots; stored as two byte operands.
+  bool isLocal;
+  bool isConst;
+} Upvalue;
 
 typedef enum {
   TYPE_FUNCTION,
@@ -61,6 +68,7 @@ typedef struct Compiler {
   FunctionType type;
 
   Local locals[1024];
+  Upvalue upvalues[256];
   int localCount;
   int scopeDepth;
 } Compiler;
@@ -224,6 +232,7 @@ static void initCompiler(Compiler* compiler, FunctionType type) {
   Local* local = &current->locals[current->localCount++];
   local->depth = 0;
   local->isConst = false;
+  local->isCaptured = false;
   local->name.start = "";
   local->name.length = 0;
 }
@@ -240,7 +249,11 @@ static void endScope() {
   while (current->localCount > 0 &&
          current->locals[current->localCount - 1].depth >
              current->scopeDepth) {
-    emitByte(OP_POP);
+    if (current->locals[current->localCount - 1].isCaptured) {
+      emitByte(OP_CLOSE_UPVALUE);
+    } else {
+      emitByte(OP_POP);
+    }
     current->localCount--;
   }
 }
@@ -500,6 +513,7 @@ static void addLocal(Token name, bool isConst) {  if (current->localCount == 102
 local->name = name;
 local->depth = -1;
 local->isConst = isConst;
+local->isCaptured = false;
 }
 
 static void declareVariable(bool isConst) {
@@ -574,17 +588,58 @@ static int resolveLocal(Compiler* compiler, Token* name) {
 
 
 
+static int addUpvalue(Compiler* compiler, uint16_t index,
+                      bool isLocal, bool isConst) {
+  int count = compiler->function->upvalueCount;
+  for (int i = 0; i < count; i++) {
+    Upvalue* upvalue = &compiler->upvalues[i];
+    if (upvalue->index == index && upvalue->isLocal == isLocal) {
+      return i;
+    }
+  }
+  if (count == 256) {
+    error("Too many closure variables in function.");
+    return 0;
+  }
+  compiler->upvalues[count].isLocal = isLocal;
+  compiler->upvalues[count].index = index;
+  compiler->upvalues[count].isConst = isConst;
+  return compiler->function->upvalueCount++;
+}
+
+static int resolveUpvalue(Compiler* compiler, Token* name) {
+  if (compiler->enclosing == NULL) return -1;
+
+  int local = resolveLocal(compiler->enclosing, name);
+  if (local != -1) {
+    Local* captured = &compiler->enclosing->locals[local];
+    captured->isCaptured = true;
+    return addUpvalue(compiler, (uint16_t)local, true, captured->isConst);
+  }
+
+  int upvalue = resolveUpvalue(compiler->enclosing, name);
+  if (upvalue != -1) {
+    bool isConst = compiler->enclosing->upvalues[upvalue].isConst;
+    return addUpvalue(compiler, (uint16_t)upvalue, false, isConst);
+  }
+  return -1;
+}
+
 static void namedVariable(Token name, bool canAssign) {
   uint8_t getOp, setOp;
   bool isConst = false;
+  bool isLocal = false;
 
   int arg = resolveLocal(current, &name);
-  bool isLocal = arg != -1;
-
-  if (isLocal) {
+  if (arg != -1) {
+    isLocal = true;
     getOp = OP_GET_LOCAL;
     setOp = OP_SET_LOCAL;
     isConst = current->locals[arg].isConst;
+  } else if ((arg = resolveUpvalue(current, &name)) != -1) {
+    getOp = OP_GET_UPVALUE;
+    setOp = OP_SET_UPVALUE;
+    isConst = current->upvalues[arg].isConst;
   } else {
     arg = identifierConstant(&name);
     getOp = OP_GET_GLOBAL;
@@ -594,22 +649,14 @@ static void namedVariable(Token name, bool canAssign) {
 
   if (canAssign && match(TOKEN_EQUAL)) {
     expression();
-
     if (isConst) {
       errorAt(&name, "Can't assign to a constant variable.");
     }
-
-    if (isLocal) {
-      emitLocal(setOp, arg);
-    } else {
-      emitBytes(setOp, (uint8_t)arg);
-    }
+    if (isLocal) emitLocal(setOp, arg);
+    else emitBytes(setOp, (uint8_t)arg);
   } else {
-    if (isLocal) {
-      emitLocal(getOp, arg);
-    } else {
-      emitBytes(getOp, (uint8_t)arg);
-    }
+    if (isLocal) emitLocal(getOp, arg);
+    else emitBytes(getOp, (uint8_t)arg);
   }
 }
 
@@ -688,6 +735,12 @@ static void block() {
 
 
 static void function(FunctionType type) {
+  // Continue targets belong to one function, never a containing function.
+  int enclosingLoopStart = innermostLoopStart;
+  int enclosingLoopDepth = innermostLoopScopeDepth;
+  innermostLoopStart = -1;
+  innermostLoopScopeDepth = 0;
+
   Compiler compiler;
   initCompiler(&compiler, type);
   beginScope();
@@ -715,7 +768,22 @@ static void function(FunctionType type) {
   block();
 
   ObjFunction* function = endCompiler();
-  emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function)));
+  innermostLoopStart = enclosingLoopStart;
+  innermostLoopScopeDepth = enclosingLoopDepth;
+
+  uint8_t functionConstant = makeConstant(OBJ_VAL(function));
+  if (function->upvalueCount == 0) {
+    // Challenge 1: A function with no upvalues needs no closure allocation.
+    emitBytes(OP_CONSTANT, functionConstant);
+  } else {
+    emitBytes(OP_CLOSURE, functionConstant);
+    for (int i = 0; i < function->upvalueCount; i++) {
+      // This VM uses a two-byte index for its extended local slots.
+      emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
+      emitByte((uint8_t)(compiler.upvalues[i].index >> 8));
+      emitByte((uint8_t)(compiler.upvalues[i].index & 0xff));
+    }
+  }
 }
 
 
@@ -999,7 +1067,7 @@ static void continueStatement() {
        i >= 0 &&
        current->locals[i].depth > innermostLoopScopeDepth;
        i--) {
-    emitByte(OP_POP);
+    emitByte(current->locals[i].isCaptured ? OP_CLOSE_UPVALUE : OP_POP);
   }
 
   emitLoop(innermostLoopStart);

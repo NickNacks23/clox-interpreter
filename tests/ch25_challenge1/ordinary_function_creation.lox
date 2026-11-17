@@ -1,0 +1,9 @@
+// Creates and calls many functions that capture no variables.
+var start = clock();
+var result = 0;
+for (var i = 0; i < 250000; i = i + 1) {
+  fun increment(x) { return x + 1; }
+  result = increment(i);
+}
+print result;              // Expected 250000
+print clock() - start;
